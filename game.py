@@ -25,6 +25,7 @@ class Action:
         self.repeat_text = data.get("repeat_text", None)
         self.repeat_effects = data.get("repeat_effects", {})
         self.repeat_next = data.get("repeat_next", None)
+        self.death_next = data.get("death_next", None)  # специальный узел смерти
 
 class Node:
     """Узел сцены."""
@@ -157,19 +158,15 @@ class GameEngine:
     def _wrap_items(self, items: List[str], prefix: str, max_width: int) -> List[str]:
         """Формирует строки инвентаря с переносом по словам."""
         lines = []
-        # Начинаем с префикса
         current_line = prefix
         for item in items:
-            # Проверяем, помещается ли предмет в текущую строку
             test_line = current_line + item + ", "
             if len(test_line) <= max_width:
                 current_line = test_line
             else:
-                # Добавляем текущую строку (без последней запятой)
                 if current_line != prefix:
                     lines.append(current_line.rstrip(", "))
-                # Начинаем новую строку с отступом
-                current_line = "          " + item + ", "  # отступ 10 пробелов
+                current_line = "          " + item + ", "
         if current_line != prefix:
             lines.append(current_line.rstrip(", "))
         return lines
@@ -206,21 +203,15 @@ class GameEngine:
             inv_items = stats['inventory']
             total_items = len(inv_items)
             
-            # Определяем, сколько предметов показывать (например, 6)
             max_visible = 6
             max_offset = max(0, total_items - max_visible)
             self.inv_scroll_offset = max(0, min(self.inv_scroll_offset, max_offset))
             
             visible_items = inv_items[self.inv_scroll_offset:self.inv_scroll_offset + max_visible]
-            
-            # Получаем максимальную ширину контента внутри рамки (отступаем по 2 пробела)
-            max_content_width = 70  # можно рассчитать динамически, но для простоты используем константу
-            
-            # Формируем строки с переносом
+            max_content_width = 70
             inventory_lines = self._wrap_items(visible_items, "Предметы: ", max_content_width)
             lines.extend(inventory_lines)
             
-            # Добавляем индикатор прокрутки и подсказку, если нужно
             if total_items > max_visible:
                 scroll_indicator = ""
                 if self.inv_scroll_offset > 0 and self.inv_scroll_offset + max_visible < total_items:
@@ -292,13 +283,11 @@ class GameEngine:
             is_completed = action.once and self.save.is_action_completed(action.id)
             conditions_met = self.evaluate_condition(action.conditions, self.stats)
             
-            # Определяем текст для отображения
             if is_completed and action.repeat_text:
                 display_text = action.repeat_text
             else:
                 display_text = action.text
             
-            # Добавляем крестик для визуального обозначения доступности
             if not conditions_met:
                 display_text = f"[✗] {display_text}"
             else:
@@ -316,10 +305,9 @@ class GameEngine:
     # ---------- Меню сохранений и окончания ----------
     
     def show_save_slot_menu(self, stdscr, title="ВЫБОР СЛОТА ДЛЯ СОХРАНЕНИЯ") -> Optional[str]:
-        """Меню выбора слота для сохранения."""
+        """Меню выбора слота для сохранения с динамической рамкой."""
         h, w = stdscr.getmaxyx()
         
-        # Проверяем существующие сохранения
         saves = []
         for i in range(1, 4):
             save_file = f"save_{i}.json"
@@ -339,24 +327,29 @@ class GameEngine:
         options = [f"{desc}" for _, desc, _ in saves]
         options.append("Отмена")
         
+        max_len = max(len(opt) for opt in options)
+        max_len = max(max_len, len(title))
+        frame_width = max_len + 4
+        
         current = 0
         while True:
             stdscr.clear()
-            stdscr.addstr(h//2 - 4, w//2 - 15, "╔════════════════════════════════════╗")
-            stdscr.addstr(h//2 - 3, w//2 - 15, f"║{title:^30}║")
-            stdscr.addstr(h//2 - 2, w//2 - 15, "╠════════════════════════════════════╣")
+            left = w//2 - frame_width//2
+            stdscr.addstr(h//2 - 3, left, "╔" + "═" * frame_width + "╗")
+            stdscr.addstr(h//2 - 2, left, "║" + title.center(frame_width) + "║")
+            stdscr.addstr(h//2 - 1, left, "╠" + "═" * frame_width + "╣")
             
             for idx, opt in enumerate(options):
                 y = h//2 + idx
-                x = w//2 - len(opt)//2
+                padded = opt.ljust(frame_width)
                 if idx == current:
                     stdscr.attron(curses.A_REVERSE)
-                    stdscr.addstr(y, x, opt)
+                    stdscr.addstr(y, left, "║" + padded + "║")
                     stdscr.attroff(curses.A_REVERSE)
                 else:
-                    stdscr.addstr(y, x, opt)
+                    stdscr.addstr(y, left, "║" + padded + "║")
             
-            stdscr.addstr(h//2 + len(options) + 1, w//2 - 15, "╚════════════════════════════════════╝")
+            stdscr.addstr(h//2 + len(options), left, "╚" + "═" * frame_width + "╝")
             stdscr.addstr(h-2, 2, "[↑/↓] выбор  [Enter] подтвердить")
             
             key = stdscr.getch()
@@ -365,34 +358,31 @@ class GameEngine:
             elif key == curses.KEY_DOWN and current < len(options)-1:
                 current += 1
             elif key == ord('\n'):
-                if current == len(options)-1:  # Отмена
+                if current == len(options)-1:
                     return None
                 else:
-                    return saves[current][0]  # Возвращаем имя файла
+                    return saves[current][0]
     
     def show_save_menu(self, stdscr) -> bool:
         """Меню сохранения с выбором слота."""
         save_file = self.show_save_slot_menu(stdscr, "ВЫБОР СЛОТА ДЛЯ СОХРАНЕНИЯ")
         if not save_file:
-            return True  # Отмена сохранения, продолжаем игру
+            return True
         
-        # Сохраняем в выбранный слот
         self.save = SaveGame(save_file)
         self.save.update_stats(self.stats)
         self.save.set_current_node(self.current_node_id)
         self.save.save()
         
-        # Показываем сообщение о сохранении
         h, w = stdscr.getmaxyx()
         stdscr.clear()
         stdscr.addstr(h//2, w//2 - 10, "Сохранено!")
         stdscr.refresh()
-        curses.napms(1000)  # Ждём 1 секунду
-        
-        return True  # Продолжаем игру
+        curses.napms(1000)
+        return True
     
     def show_load_menu(self, stdscr) -> Optional[Tuple[str, bool]]:
-        """Возвращает (save_file, overwrite) где overwrite=True если нужно перезаписать существующее сохранение."""
+        """Меню загрузки с динамической рамкой."""
         h, w = stdscr.getmaxyx()
         saves = []
         for i in range(1, 4):
@@ -413,24 +403,30 @@ class GameEngine:
         options = [f"{desc}" for _, desc, _ in saves]
         options.append("Новая игра (выбрать слот)")
         
+        title = "ЗАГРУЗКА ИГРЫ"
+        max_len = max(len(opt) for opt in options)
+        max_len = max(max_len, len(title))
+        frame_width = max_len + 4
+        
         current = 0
         while True:
             stdscr.clear()
-            stdscr.addstr(h//2 - 4, w//2 - 15, "╔════════════════════════════════════╗")
-            stdscr.addstr(h//2 - 3, w//2 - 15, "║           ЗАГРУЗКА ИГРЫ           ║")
-            stdscr.addstr(h//2 - 2, w//2 - 15, "╠════════════════════════════════════╣")
+            left = w//2 - frame_width//2
+            stdscr.addstr(h//2 - 3, left, "╔" + "═" * frame_width + "╗")
+            stdscr.addstr(h//2 - 2, left, "║" + title.center(frame_width) + "║")
+            stdscr.addstr(h//2 - 1, left, "╠" + "═" * frame_width + "╣")
             
             for idx, opt in enumerate(options):
                 y = h//2 + idx
-                x = w//2 - len(opt)//2
+                padded = opt.ljust(frame_width)
                 if idx == current:
                     stdscr.attron(curses.A_REVERSE)
-                    stdscr.addstr(y, x, opt)
+                    stdscr.addstr(y, left, "║" + padded + "║")
                     stdscr.attroff(curses.A_REVERSE)
                 else:
-                    stdscr.addstr(y, x, opt)
+                    stdscr.addstr(y, left, "║" + padded + "║")
             
-            stdscr.addstr(h//2 + len(options) + 1, w//2 - 15, "╚════════════════════════════════════╝")
+            stdscr.addstr(h//2 + len(options), left, "╚" + "═" * frame_width + "╝")
             stdscr.addstr(h-2, 2, "[↑/↓] выбор  [Enter] подтвердить")
             
             key = stdscr.getch()
@@ -439,16 +435,15 @@ class GameEngine:
             elif key == curses.KEY_DOWN and current < len(options)-1:
                 current += 1
             elif key == ord('\n'):
-                if current == len(options)-1:  # Новая игра
+                if current == len(options)-1:
                     slot = self.show_save_slot_menu(stdscr, "ВЫБОР СЛОТА ДЛЯ НОВОЙ ИГРЫ")
                     if slot:
-                        return (slot, True)  # перезапись
+                        return (slot, True)
                     else:
                         continue
                 elif saves[current][2] == "exists":
-                    return (saves[current][0], False)  # загрузка
+                    return (saves[current][0], False)
                 else:
-                    # Пустой слот — можно начать новую игру
                     return (saves[current][0], True)
     
     def show_end_game_screen(self, stdscr, node) -> bool:
@@ -477,7 +472,7 @@ class GameEngine:
             elif key == curses.KEY_DOWN and current < len(options)-1:
                 current += 1
             elif key == ord('\n'):
-                if current == 0:  # Начать заново
+                if current == 0:
                     slot = self.show_save_slot_menu(stdscr, "ВЫБОР СЛОТА ДЛЯ НОВОЙ ИГРЫ")
                     if slot:
                         self.save = SaveGame(slot)
@@ -502,7 +497,6 @@ class GameEngine:
     # ---------- Основной цикл ----------
     
     def wrap_text(self, text: str, width: int) -> List[str]:
-        """Переносит длинный текст на строки заданной ширины."""
         return self._wrap_text(text, width)
 
     def start(self, start_id: str, save_file: str = None):
@@ -531,7 +525,6 @@ class GameEngine:
             self.save = SaveGame(self.save_file)
             
             if overwrite:
-                # Новая игра в выбранный слот (перезаписываем)
                 start_node = self.nodes.get(start_id)
                 if start_node and start_node.stats:
                     self.stats = start_node.stats.copy()
@@ -542,7 +535,6 @@ class GameEngine:
                 self.current_node_id = start_id
                 self.loaded_save = True
             else:
-                # Загружаем существующее сохранение
                 self.loaded_save = self.save.load()
                 if self.loaded_save:
                     self.current_node_id = self.save.data["current_node"]
@@ -560,12 +552,11 @@ class GameEngine:
     def main_loop(self, stdscr):
         curses.curs_set(0)
         
-        # Настройка цветов, если поддерживаются
         if curses.has_colors():
             curses.start_color()
-            curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)   # обычный текст
-            curses.init_pair(2, curses.COLOR_RED, curses.COLOR_BLACK)      # недоступные опции
-            curses.init_pair(3, curses.COLOR_GREEN, curses.COLOR_BLACK)    # доступные опции (крестик)
+            curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)
+            curses.init_pair(2, curses.COLOR_RED, curses.COLOR_BLACK)
+            curses.init_pair(3, curses.COLOR_GREEN, curses.COLOR_BLACK)
         
         h, w = stdscr.getmaxyx()
         if h < 20 or w < 60:
@@ -586,7 +577,6 @@ class GameEngine:
             stdscr.clear()
             h, w = stdscr.getmaxyx()
             
-            # Вывод ASCII-арта
             if node.image:
                 art_lines = node.image.split('\n')
                 for i, line in enumerate(art_lines):
@@ -596,7 +586,6 @@ class GameEngine:
                         except:
                             pass
             
-            # Вывод текста
             text_lines = self.wrap_text(node.text, w-4)
             start_y = len(node.image.split('\n')) + 1 if node.image else 1
             for i, line in enumerate(text_lines):
@@ -614,34 +603,25 @@ class GameEngine:
                 else:
                     continue
             
-            # Отрисовка панели статов
             if 'max_health' not in self.stats:
                 self.stats['max_health'] = 20
             
-            # Вызов draw_stat_panel сам определит нужное количество строк
-            # Вычисляем примерное количество строк в панели, чтобы разместить меню
-            # Для простоты используем фиксированную позицию (панель рисуется от y = h - 15)
             panel_y = h - 15
             self.draw_stat_panel(stdscr, panel_y, 1, self.stats)
             
-            # Меню действий
             menu_y = start_y + len(text_lines) + 2
             options = [a["display_text"] for a in available_actions]
             current = 0
             
             while True:
-                # Отрисовка меню
                 for idx, opt in enumerate(options):
                     y = menu_y + idx
-                    # Не выходим за пределы панели
                     if y >= panel_y - 1:
                         break
-                    
                     action_info = available_actions[idx]
                     is_available = action_info["available"]
                     
                     if idx == current:
-                        # Выделенный пункт: просто инверсия (без цвета)
                         stdscr.attron(curses.A_REVERSE)
                         try:
                             stdscr.addstr(y, 2, opt[:w-4])
@@ -649,11 +629,10 @@ class GameEngine:
                             pass
                         stdscr.attroff(curses.A_REVERSE)
                     else:
-                        # Невыделенный пункт: цвет в зависимости от доступности
                         if not is_available and curses.has_colors():
-                            stdscr.attron(curses.color_pair(2))  # красный
+                            stdscr.attron(curses.color_pair(2))
                         elif curses.has_colors():
-                            stdscr.attron(curses.color_pair(1))  # белый
+                            stdscr.attron(curses.color_pair(1))
                         try:
                             stdscr.addstr(y, 2, opt[:w-4])
                         except:
@@ -663,18 +642,15 @@ class GameEngine:
                             stdscr.attroff(curses.color_pair(1))
                 
                 key = stdscr.getch()
-                
-                # Обработка стрелок для прокрутки инвентаря
                 if key == curses.KEY_LEFT:
                     self.inv_scroll_offset = max(0, self.inv_scroll_offset - 3)
-                    break  # перерисовываем экран
+                    break
                 elif key == curses.KEY_RIGHT:
                     total_items = len(self.stats.get('inventory', []))
                     max_visible = 6
                     max_offset = max(0, total_items - max_visible)
                     self.inv_scroll_offset = min(max_offset, self.inv_scroll_offset + 3)
-                    break  # перерисовываем экран
-                
+                    break
                 elif key == curses.KEY_UP and current > 0:
                     current -= 1
                 elif key == curses.KEY_DOWN and current < len(options)-1:
@@ -684,9 +660,8 @@ class GameEngine:
                     action = action_info["action"]
                     is_new = action_info["is_new"]
                     is_available = action_info["available"]
-                    
                     if not is_available:
-                        continue  # недоступное действие игнорируем
+                        continue
                     
                     if is_new:
                         effects_to_apply = action.effects
@@ -700,10 +675,26 @@ class GameEngine:
                         self.save.mark_action_completed(action.id)
                     
                     self.save.update_stats(self.stats)
-                    self.current_node_id = next_node
-                    self.save.set_current_node(self.current_node_id)
-                    self.save.save()
-                    break
+                    
+                    # Проверка смерти после применения эффектов
+                    if self.stats.get('health', 0) <= 0:
+                        # Если есть специальный узел смерти для этого действия, идём туда
+                        if action.death_next:
+                            self.current_node_id = action.death_next
+                        else:
+                            death_node = self.nodes.get("death")
+                            if death_node:
+                                self.current_node_id = "death"
+                            else:
+                                break
+                        self.save.set_current_node(self.current_node_id)
+                        self.save.save()
+                        break  # выход из внутреннего цикла для перерисовки с узлом смерти
+                    else:
+                        self.current_node_id = next_node
+                        self.save.set_current_node(self.current_node_id)
+                        self.save.save()
+                        break
                     
                 elif key == ord('s') or key == ord('S'):
                     if not self.show_save_menu(stdscr):
