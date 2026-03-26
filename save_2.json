@@ -1,0 +1,16 @@
+{
+  "current_node": "start",
+  "stats": {
+    "health": 12,
+    "max_health": 20,
+    "strength": 6,
+    "money": 15,
+    "inventory": [
+      "верёвка",
+      "ключ"
+    ]
+  },
+  "completed_actions": [],
+  "visited_nodes": [],
+  "last_saved": "2026-03-26T15:10:19.936703"
+}

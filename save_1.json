@@ -1,0 +1,28 @@
+{
+  "current_node": "freedom_end",
+  "stats": {
+    "health": 7,
+    "max_health": 20,
+    "strength": 7,
+    "money": 15,
+    "inventory": [
+      "верёвка",
+      "ключ"
+    ]
+  },
+  "completed_actions": [
+    "cell_inspect_0",
+    "start_0"
+  ],
+  "visited_nodes": [
+    "secret_passage",
+    "trap_help",
+    "corridor",
+    "cell_inspect",
+    "shout",
+    "fight_guard",
+    "guard_room",
+    "start"
+  ],
+  "last_saved": "2026-03-26T15:10:14.268488"
+}
